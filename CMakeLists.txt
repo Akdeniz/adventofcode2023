@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.17)
-project(adventofcode2022)
+project(adventofcode2023)
 
 set(CMAKE_CXX_STANDARD 20)
 #set(CMAKE_BUILD_TYPE RelWithDebInfo)
