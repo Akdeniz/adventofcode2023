@@ -26,120 +26,141 @@ fn read() -> Vec<String> {
     return lines.into_iter().map(|x| x.unwrap()).collect();
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Hash)]
-enum Dir {
-    U,
-    D,
-    L,
-    R,
+enum ModuleType{Conjuction, FlipFlop, None}
+struct Module<'a> {
+    typ: ModuleType,
+    destinations: Vec<&'a str>,
+    is_on: bool,
+    input_pulses: HashMap<&'a str, bool>
 }
 
-#[derive(Debug, PartialEq, Eq)]
-struct PosDirType(i64, i64, Dir);
-#[derive(Debug, PartialEq, Eq)]
-struct PqType(i64, PosDirType);
-
-impl PartialOrd for PqType {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(other.0.cmp(&self.0))
+impl Module<'_> {
+    fn all_inputs_are_high(&self) -> bool {
+        self.input_pulses.iter().all(|(_, &x)| x)
     }
 }
 
-impl Ord for PqType {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.0.cmp(&self.0)
-    }
+struct Pulse<'a> {
+    from: &'a str,
+    to: &'a str,
+    is_high: bool
 }
 
-fn bfs(table: &Vec<Vec<i64>>, min_move: i64, max_move: i64) -> Option<i64> {
-    let row_len = table.len() as i64;
-    let col_len = table[0].len() as i64;
+fn execute(modules: &mut HashMap<&str, Module>) -> (i64, i64) {
+    let mut pulses = VecDeque::new();
+    pulses.push_back(Pulse{from:"button", to:"broadcaster", is_high: false});
 
-    let mut visited = HashSet::new();
-    let mut pq: BinaryHeap<PqType> = BinaryHeap::new();
+    let mut low_pulse_cnt = 0i64;
+    let mut high_pulse_cnt = 0i64;
 
-    pq.push(PqType(0, PosDirType(0, 0, Dir::D)));
-    pq.push(PqType(0, PosDirType(0, 0, Dir::R)));
+    while let Some(pulse) = pulses.pop_front() {
 
-    while let Some(cur) = pq.pop() {
-        let value = cur.0;
-        let x = cur.1 .0;
-        let y = cur.1 .1;
-        let dir = cur.1 .2;
-
-        if x == row_len - 1 && y == col_len - 1 {
-            return Some(value);
+        //println!("{} -{}-> {}", pulse.from, if pulse.is_high {"high"} else {"low"}, pulse.to);
+        if pulse.is_high {
+            high_pulse_cnt+=1;
+        } else {
+            low_pulse_cnt+=1;
         }
 
-        if !visited.insert(((x, y), dir)) {
-            continue;
-        }
+        let module = modules.get_mut(pulse.to).unwrap();
 
-        match dir {
-            Dir::D => {
-                if x + min_move < row_len {
-                    let mut path = 0;
-                    for i in (x + 1)..=(x + max_move).min(row_len - 1) {
-                        path += table[i as usize][y as usize];
-                        if i - x >= min_move {
-                            pq.push(PqType(value + path, PosDirType(i, y, Dir::L)));
-                            pq.push(PqType(value + path, PosDirType(i, y, Dir::R)));
-                        }
+        match module.typ {
+            ModuleType::None => {
+                for &dest in module.destinations.iter() {
+                    pulses.push_back(Pulse{from: pulse.to, to: dest, is_high: pulse.is_high});
+                }
+            }
+            ModuleType::FlipFlop => {
+                if !pulse.is_high {
+                    module.is_on = !module.is_on;
+
+                    for &dest in module.destinations.iter() {
+                        pulses.push_back(Pulse{from: pulse.to, to : dest, is_high: module.is_on});
                     }
                 }
             }
-            Dir::U => {
-                if x - min_move >= 0 {
-                    let mut path = 0;
-                    for i in ((x - max_move).max(0)..x).rev() {
-                        path += table[i as usize][y as usize];
-                        if x - i >= min_move {
-                            pq.push(PqType(value + path, PosDirType(i, y, Dir::L)));
-                            pq.push(PqType(value + path, PosDirType(i, y, Dir::R)));
-                        }
-                    }
-                }
-            }
-            Dir::R => {
-                if y + min_move < col_len {
-                    let mut path = 0;
-                    for i in (y + 1)..=(y + max_move).min(col_len - 1) {
-                        path += table[x as usize][i as usize];
-                        if i - y >= min_move {
-                            pq.push(PqType(value + path, PosDirType(x, i, Dir::U)));
-                            pq.push(PqType(value + path, PosDirType(x, i, Dir::D)));
-                        }
-                    }
-                }
-            }
-            Dir::L => {
-                if y - min_move >= 0 {
-                    let mut path = 0;
-                    for i in ((y - max_move).max(0)..y).rev() {
-                        path += table[x as usize][i as usize];
-                        if y - i >= min_move {
-                            pq.push(PqType(value + path, PosDirType(x, i, Dir::U)));
-                            pq.push(PqType(value + path, PosDirType(x, i, Dir::D)));
-                        }
-                    }
+            ModuleType::Conjuction => {
+                module.input_pulses.insert(pulse.from, pulse.is_high);
+                let all_high = module.all_inputs_are_high();
+
+                for &dest in module.destinations.iter() {
+                    pulses.push_back(Pulse{from: pulse.to, to: dest, is_high: !all_high});
                 }
             }
         }
     }
 
-    None
+    (low_pulse_cnt, high_pulse_cnt)
 }
 
 fn main() {
-    let table = read()
-        .into_iter()
-        .map(|x| {
-            x.chars()
-                .map(|x| x.to_digit(10).unwrap() as i64)
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+    let table = read();
 
-    println!("part1 {:?}", bfs(&table, 0, 3).unwrap());
-    println!("part2 {:?}", bfs(&table, 4, 10).unwrap());
+    lazy_static! {
+        static ref LINE_RE: Regex = Regex::new(r#"(?P<type>((%|&)?))(?P<name>[a-z]+) -> (?P<destionations>[a-z ,]+)"#).unwrap();
+        static ref NAME_RE: Regex = Regex::new(r#"(?P<name>[a-z]+)"#).unwrap();
+    }
+
+    let mut modules = HashMap::new();
+    for line in table.iter() {
+        let captures = LINE_RE.captures(&*line).unwrap();
+        let typ = captures.name("type").unwrap().as_str();
+        let name = captures.name("name").unwrap().as_str();
+        let destionations_str = captures.name("destionations").unwrap().as_str();
+
+        let mut module = Module{
+            typ: if typ.is_empty() { ModuleType::None } else if typ.eq("%") { ModuleType::FlipFlop } else { ModuleType::Conjuction } ,
+            destinations: vec![],
+            is_on: false,
+            input_pulses: HashMap::new(),
+        };
+        for capture in NAME_RE.captures_iter(destionations_str) {
+            let (_, [name]) = capture.extract();
+            module.destinations.push(name);
+        }
+
+        modules.insert(name, module);
+    }
+
+    modules.insert("button", Module{
+        typ: ModuleType::None,
+        destinations: vec!["broadcaster"],
+        is_on: false,
+        input_pulses: HashMap::new(),
+    });
+
+    let mut only_dest = vec![];
+    let mut input_pulses = vec![];
+    for (&name, module) in modules.iter() {
+        for &dest in module.destinations.iter() {
+            only_dest.push(dest);
+            input_pulses.push((dest, name));
+        }
+    }
+
+    for name in only_dest {
+        if !modules.contains_key(name) {
+            modules.insert(name, Module{
+                typ: ModuleType::None,
+                destinations: vec![],
+                is_on: false,
+                input_pulses: HashMap::new(),
+            });
+        }
+    }
+
+    for (to, from) in input_pulses {
+        let module = modules.get_mut(to).unwrap();
+        module.input_pulses.insert(from, false);
+    }
+
+    let mut low_total = 0;
+    let mut high_total = 0;
+    for _ in 0..1000 {
+        let (low, high) = execute(&mut modules);
+        low_total+=low;
+        high_total+=high;
+    }
+
+    println!("part1 {:?}", low_total*high_total);
 }
